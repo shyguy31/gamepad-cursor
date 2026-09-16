@@ -1,1 +1,226 @@
-name: Build APK; on: [push, workflow_dispatch]; jobs: build: runs-on: ubuntu-latest; steps: [- uses: actions/checkout@v4, - name: Set up JDK 17, uses: actions/setup-java@v4, with: {java-version: '17', distribution: 'temurin'}, - name: Build, run: |; echo "rootProject.name = 'GamepadCursor'" > settings.gradle; echo "include ':app'" >> settings.gradle; printf "buildscript {\n repositories { google(); mavenCentral() }\n dependencies { classpath 'com.android.tools.build:gradle:8.1.1' }\n}\nallprojects {\n repositories { google(); mavenCentral() }\n}\n" > build.gradle; mkdir -p app/src/main/java/com/example/gamepadcursor app/src/main/res/layout app/src/main/res/xml; printf "plugins {\n id 'com.android.application'\n id 'org.jetbrains.kotlin.android' version '1.9.0'\n}\nandroid {\n namespace 'com.example.gamepadcursor'\n compileSdk 34\n defaultConfig {\n applicationId \"com.example.gamepadcursor\"\n minSdk 26\n targetSdk 34\n versionCode 1\n versionName \"1.0\"\n }\n}\ndependencies {\n implementation 'androidx.core:core-ktx:1.12.0'\n implementation 'androidx.appcompat:appcompat:1.6.1'\n implementation 'com.google.android.material:material:1.11.0'\n}\n" > app/build.gradle; printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.gamepadcursor\">\n <uses-permission android:name=\"android.permission.SYSTEM_ALERT_WINDOW\" />\n <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />\n <application android:label=\"Gamepad Cursor\" android:theme=\"@style/Theme.MaterialComponents.DayNight.NoActionBar\">\n <activity android:name=\".MainActivity\" android:exported=\"true\">\n <intent-filter>\n <action android:name=\"android.intent.action.MAIN\" />\n <category android:name=\"android.intent.category.LAUNCHER\" />\n </intent-filter>\n </activity>\n <service android:name=\".GamepadCursorService\" android:permission=\"android.permission.BIND_ACCESSIBILITY_SERVICE\" android:exported=\"true\">\n <intent-filter>\n <action android:name=\"android.accessibilityservice.AccessibilityService\" />\n </intent-filter>\n <meta-data android:name=\"android.accessibilityservice\" android:resource=\"@xml/accessibility_service_config\" />\n </service>\n </application>\n</manifest>\n" > app/src/main/AndroidManifest.xml; printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<accessibility-service xmlns:android=\"http://schemas.android.com/apk/res/android\"\n android:accessibilityEventTypes=\"typeAllMask\"\n android:accessibilityFeedbackType=\"feedbackGeneric\"\n android:accessibilityFlags=\"flagDefault|flagRequestFilterKeyEvents\"\n android:canPerformGestures=\"true\"\n android:canRetrieveWindowContent=\"true\"\n android:notificationTimeout=\"100\" />\n" > app/src/main/res/xml/accessibility_service_config.xml; printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<FrameLayout xmlns:android=\"http://schemas.android.com/apk/res/android\" android:layout_width=\"wrap_content\" android:layout_height=\"wrap_content\">\n <ImageView android:id=\"@+id/cursor_icon\" android:layout_width=\"32dp\" android:layout_height=\"32dp\" android:src=\"@android:drawable/ic_menu_compass\" />\n</FrameLayout>\n" > app/src/main/res/layout/overlay_cursor.xml; printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<LinearLayout xmlns:android=\"http://schemas.android.com/apk/res/android\" android:layout_width=\"match_parent\" android:layout_height=\"match_parent\" android:orientation=\"vertical\" android:gravity=\"center\" android:padding=\"24dp\" android:background=\"#121212\">\n <TextView android:layout_width=\"wrap_content\" android:layout_height=\"wrap_content\" android:text=\"Gamepad Cursor\" android:textColor=\"#FFFFFF\" android:textSize=\"26sp\" android:textStyle=\"bold\" android:layout_marginBottom=\"12dp\" />\n <Button android:id=\"@+id/btn_permissions\" android:layout_width=\"match_parent\" android:layout_height=\"60dp\" android:text=\"1. Grant Display Permission\" android:textSize=\"16sp\" android:backgroundTint=\"#6200EE\" android:textColor=\"#FFFFFF\" android:layout_marginBottom=\"16dp\" />\n <Button android:id=\"@+id/btn_accessibility\" android:layout_width=\"match_parent\" android:layout_height=\"60dp\" android:text=\"2. Enable Accessibility Service\" android:textSize=\"16sp\" android:backgroundTint=\"#03DAC5\" android:textColor=\"#000000\" />\n</LinearLayout>\n" > app/src/main/res/layout/activity_main.xml; printf "package com.example.gamepadcursor\nimport android.content.Intent\nimport android.net.Uri\nimport android.os.Bundle\nimport android.provider.Settings\nimport android.widget.Button\nimport androidx.appcompat.app.AppCompatActivity\nclass MainActivity : AppCompatActivity() {\n override fun onCreate(savedInstanceState: Bundle?) {\n super.onCreate(savedInstanceState)\n setContentView(R.layout.activity_main)\n findViewById<Button>(R.id.btn_permissions).setOnClickListener {\n startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse(\"package:\$packageName\")))\n }\n findViewById<Button>(R.id.btn_accessibility).setOnClickListener {\n startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))\n }\n }\n}\n" > app/src/main/java/com/example/gamepadcursor/MainActivity.kt; printf "package com.example.gamepadcursor\nimport android.accessibilityservice.AccessibilityService\nimport android.accessibilityservice.GestureDescription\nimport android.graphics.Path\nimport android.graphics.PixelFormat\nimport android.os.Build\nimport android.view.*\nimport android.view.accessibility.AccessibilityEvent\nclass GamepadCursorService : AccessibilityService() {\n private lateinit var windowManager: WindowManager\n private lateinit var cursorView: View\n private lateinit var layoutParams: WindowManager.LayoutParams\n private var cursorX = 500f\n private var cursorY = 800f\n private val moveSpeed = 25f\n override fun onCreate() {\n super.onCreate()\n windowManager = getSystemService(WINDOW_SERVICE) as WindowManager\n cursorView = LayoutInflater.from(this).inflate(R.layout.overlay_cursor, null)\n val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE\n layoutParams = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, layoutType, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = cursorX.toInt(); y = cursorY.toInt() }\n windowManager.addView(cursorView, layoutParams)\n }\n override fun onKeyEvent(event: KeyEvent): Boolean {\n if (event.action == KeyEvent.ACTION_DOWN) {\n when (event.keyCode) {\n KeyEvent.KEYCODE_DPAD_UP -> { updatePosition(0f, -moveSpeed); return true }\n KeyEvent.KEYCODE_DPAD_DOWN -> { updatePosition(0f, moveSpeed); return true }\n KeyEvent.KEYCODE_DPAD_LEFT -> { updatePosition(-moveSpeed, 0f); return true }\n KeyEvent.KEYCODE_DPAD_RIGHT -> { updatePosition(moveSpeed, 0f); return true }\n KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BUTTON_A -> { performClickAtCursor(); return true }\n }\n }\n return super.onKeyEvent(event)\n }\n override fun onGenericMotionEvent(event: MotionEvent): Boolean {\n if (event.source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK) {\n val x = event.getAxisValue(MotionEvent.AXIS_X)\n val y = event.getAxisValue(MotionEvent.AXIS_Y)\n if (Math.abs(x) > 0.1f || Math.abs(y) > 0.1f) { updatePosition(x * moveSpeed, y * moveSpeed); return true }\n }\n return super.onGenericMotionEvent(event)\n }\n private fun updatePosition(dx: Float, dy: Float) {\n cursorX = (cursorX + dx).coerceIn(0f, resources.displayMetrics.widthPixels.toFloat())\n cursorY = (cursorY + dy).coerceIn(0f, resources.displayMetrics.heightPixels.toFloat())\n layoutParams.x = cursorX.toInt()\n layoutParams.y = cursorY.toInt()\n windowManager.updateViewLayout(cursorView, layoutParams)\n }\n private fun performClickAtCursor() {\n val path = Path().apply { moveTo(cursorX, cursorY) }\n val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 50)).build()\n dispatchGesture(gesture, null, null)\n }\n override fun onAccessibilityEvent(event: AccessibilityEvent?) {}\n override fun onInterrupt() {}\n override fun onDestroy() {\n super.onDestroy()\n if (::cursorView.isInitialized) windowManager.removeView(cursorView)\n }\n}\n" > app/src/main/java/com/example/gamepadcursor/GamepadCursorService.kt; gradle wrapper; ./gradlew assembleDebug, - uses: actions/upload-artifact@v4, with: {name: gamepad-cursor-apk, path: app/build/outputs/apk/debug/app-debug.apk}]
+name: Build APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Build Project
+        run: |
+          echo "rootProject.name = 'GamepadCursor'" > settings.gradle
+          echo "include ':app'" >> settings.gradle
+          
+          mkdir -p app/src/main/java/com/example/gamepadcursor
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/xml
+
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.1.1' }
+          }
+          allprojects {
+              repositories { google(); mavenCentral() }
+          }
+          EOF
+
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android' version '1.9.0'
+          }
+          android {
+              namespace 'com.example.gamepadcursor'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.example.gamepadcursor"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+          }
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.gamepadcursor">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <application android:label="Gamepad Cursor" android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".GamepadCursorService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/xml/accessibility_service_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeAllMask"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault|flagRequestFilterKeyEvents"
+              android:canPerformGestures="true"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="100" />
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/overlay_cursor.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="wrap_content" android:layout_height="wrap_content">
+              <ImageView android:id="@+id/cursor_icon" android:layout_width="32dp" android:layout_height="32dp"
+                  android:src="@android:drawable/ic_menu_compass" />
+          </FrameLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent"
+              android:orientation="vertical" android:gravity="center" android:padding="24dp" android:background="#121212">
+              <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                  android:text="Gamepad Cursor" android:textColor="#FFFFFF" android:textSize="26sp" android:textStyle="bold" android:layout_marginBottom="12dp" />
+              <Button android:id="@+id/btn_permissions" android:layout_width="match_parent" android:layout_height="60dp"
+                  android:text="1. Grant Display Permission" android:textSize="16sp" android:backgroundTint="#6200EE" android:textColor="#FFFFFF" android:layout_marginBottom="16dp" />
+              <Button android:id="@+id/btn_accessibility" android:layout_width="match_parent" android:layout_height="60dp"
+                  android:text="2. Enable Accessibility Service" android:textSize="16sp" android:backgroundTint="#03DAC5" android:textColor="#000000" />
+          </LinearLayout>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/example/gamepadcursor/MainActivity.kt
+          package com.example.gamepadcursor
+
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Button
+          import androidx.appcompat.app.AppCompatActivity
+
+          class MainActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+
+                  findViewById<Button>(R.id.btn_permissions).setOnClickListener {
+                      startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                  }
+
+                  findViewById<Button>(R.id.btn_accessibility).setOnClickListener {
+                      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/example/gamepadcursor/GamepadCursorService.kt
+          package com.example.gamepadcursor
+
+          import android.accessibilityservice.AccessibilityService
+          import android.accessibilityservice.GestureDescription
+          import android.graphics.Path
+          import android.graphics.PixelFormat
+          import android.os.Build
+          import android.view.*
+          import android.view.accessibility.AccessibilityEvent
+
+          class GamepadCursorService : AccessibilityService() {
+              private lateinit var windowManager: WindowManager
+              private lateinit var cursorView: View
+              private lateinit var layoutParams: WindowManager.LayoutParams
+              private var cursorX = 500f
+              private var cursorY = 800f
+              private val moveSpeed = 25f
+
+              override fun onCreate() {
+                  super.onCreate()
+                  windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+                  cursorView = LayoutInflater.from(this).inflate(R.layout.overlay_cursor, null)
+                  val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
+                  layoutParams = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+                      layoutType, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      PixelFormat.TRANSLUCENT
+                  ).apply { gravity = Gravity.TOP or Gravity.START; x = cursorX.toInt(); y = cursorY.toInt() }
+                  windowManager.addView(cursorView, layoutParams)
+              }
+
+              override fun onKeyEvent(event: KeyEvent): Boolean {
+                  if (event.action == KeyEvent.ACTION_DOWN) {
+                      when (event.keyCode) {
+                          KeyEvent.KEYCODE_DPAD_UP -> { updatePosition(0f, -moveSpeed); return true }
+                          KeyEvent.KEYCODE_DPAD_DOWN -> { updatePosition(0f, moveSpeed); return true }
+                          KeyEvent.KEYCODE_DPAD_LEFT -> { updatePosition(-moveSpeed, 0f); return true }
+                          KeyEvent.KEYCODE_DPAD_RIGHT -> { updatePosition(moveSpeed, 0f); return true }
+                          KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BUTTON_A -> { performClickAtCursor(); return true }
+                      }
+                  }
+                  return super.onKeyEvent(event)
+              }
+
+              override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+                  if (event.source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK) {
+                      val x = event.getAxisValue(MotionEvent.AXIS_X)
+                      val y = event.getAxisValue(MotionEvent.AXIS_Y)
+                      if (Math.abs(x) > 0.1f || Math.abs(y) > 0.1f) { updatePosition(x * moveSpeed, y * moveSpeed); return true }
+                  }
+                  return super.onGenericMotionEvent(event)
+              }
+
+              private fun updatePosition(dx: Float, dy: Float) {
+                  cursorX = (cursorX + dx).coerceIn(0f, resources.displayMetrics.widthPixels.toFloat())
+                  cursorY = (cursorY + dy).coerceIn(0f, resources.displayMetrics.heightPixels.toFloat())
+                  layoutParams.x = cursorX.toInt()
+                  layoutParams.y = cursorY.toInt()
+                  windowManager.updateViewLayout(cursorView, layoutParams)
+              }
+
+              private fun performClickAtCursor() {
+                  val path = Path().apply { moveTo(cursorX, cursorY) }
+                  val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 50)).build()
+                  dispatchGesture(gesture, null, null)
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+              override fun onInterrupt() {}
+              override fun onDestroy() {
+                  super.onDestroy()
+                  if (::cursorView.isInitialized) windowManager.removeView(cursorView)
+              }
+          }
+          EOF
+
+          gradle wrapper
+          ./gradlew assembleDebug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamepad-cursor-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
